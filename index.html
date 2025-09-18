@@ -1,0 +1,453 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Marksman Resort — All-in-One (2D/3D/Cinematic/Tools)</title>
+
+<!-- Leaflet CSS -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<!-- Leaflet Measure plugin CSS -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet-measure-path@2.0.2/leaflet-measure-path.css"/>
+<!-- Leaflet Draw CSS (for editable polygon) -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css"/>
+<!-- Marker Cluster CSS -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css"/>
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css"/>
+
+<style>
+  :root{--accent:#0b69ff;--muted:#6c757d}
+  body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;background:#f4f6f8;color:#0b1220}
+  header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 14px;background:#fff;box-shadow:0 1px 0 rgba(0,0,0,0.06);position:sticky;top:0;z-index:1000}
+  header h1{margin:0;font-size:1.05rem}
+  .controls{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .btn{background:var(--accent);color:#fff;border:0;padding:8px 12px;border-radius:8px;cursor:pointer;text-decoration:none;font-size:0.95rem}
+  .btn.secondary{background:var(--muted)}
+  .layout{display:grid;grid-template-columns:1fr 420px;gap:12px;padding:12px;max-width:1400px;margin:12px auto}
+  .panel{background:#fff;border-radius:10px;padding:10px;box-shadow:0 6px 18px rgba(9,10,11,0.06)}
+  #map2d{width:100%;height:520px;border-radius:8px}
+  #globeViz{width:100%;height:520px;border-radius:8px;background:linear-gradient(#081226,#0b1220)}
+  .small{font-size:0.88rem;color:#333}
+  .field{font-family:monospace;font-size:0.95rem}
+  pre{background:#f7f8fa;padding:10px;border-radius:8px;overflow:auto}
+  footer{max-width:1400px;margin:6px auto 30px;color:#555;font-size:0.9rem;text-align:center}
+  label{font-size:0.9rem}
+  input[type="number"]{width:120px;padding:6px;border-radius:6px;border:1px solid #ddd}
+  @media (max-width:1100px){.layout{grid-template-columns:1fr}#map2d,#globeViz{height:420px}}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Marksman Resort / D-Cube Sports Club — All-in-One Map & Tools</h1>
+  <div class="controls">
+    <button id="show2d" class="btn">2D Map</button>
+    <button id="show3d" class="btn">3D Globe</button>
+    <button id="flyTo" class="btn">Cinematic Fly</button>
+    <button id="toggleParcel" class="btn secondary">Toggle Parcel</button>
+    <button id="measureBtn" class="btn secondary">Measure</button>
+    <button id="exportPNG" class="btn">Export PNG</button>
+    <button id="copyBtn" class="btn secondary">Copy coords</button>
+    <a id="openGoogle" class="btn" target="_blank" rel="noopener">Open in Google Maps</a>
+    <a id="openOSM" class="btn secondary" target="_blank" rel="noopener">Open in OSM</a>
+  </div>
+</header>
+
+<div class="layout">
+  <div class="panel" id="mapsArea">
+    <!-- Map containers -->
+    <div id="mapContainer2d" style="display:block;">
+      <div style="margin-bottom:8px;" class="small">2D Map — OpenStreetMap, Satellite (Esri), Terrain (OpenTopoMap). Click the map to create a temporary marker or double-click to center.</div>
+      <div id="map2d"></div>
+    </div>
+    <div id="mapContainer3d" style="display:none;">
+      <div style="margin-bottom:8px;" class="small">3D Globe — day/night textures (toggle), rotate, zoom. Double-click to zoom in.</div>
+      <div id="globeViz"></div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div><strong>Location & Tools</strong></div>
+
+    <div style="margin-top:8px" class="row">
+      <div class="small">Decimal:</div>
+      <div class="field" id="decDisplay">13.130552, 77.636048</div>
+    </div>
+
+    <div style="margin-top:6px" class="row">
+      <div class="small">DMS:</div>
+      <div class="field" id="dmsDisplay">13° 7' 49.99" N, 77° 38' 9.77" E</div>
+    </div>
+
+    <div style="margin-top:12px">
+      <label>Parcel buffer (meters):</label>
+      <input id="parcelBuffer" type="number" min="10" max="2000" value="200"/>
+      <button id="regenParcel" class="btn secondary">Regenerate Polygon</button>
+    </div>
+
+    <div style="margin-top:12px">
+      <button id="downloadKml" class="btn">Download KML</button>
+      <button id="downloadGeoJSON" class="btn secondary">Download GeoJSON</button>
+    </div>
+
+    <div style="margin-top:12px">
+      <details>
+        <summary style="cursor:pointer;padding:8px 6px">Advanced / Raw data</summary>
+        <pre id="rawData" style="margin-top:8px">
+{
+  "name":"Marksman Resort / D-Cube Sports Club",
+  "address":"Survey #17, Sathanur / Bagalur Main Road, Yelahanka, Bengaluru 562149",
+  "latitude":13.130552,
+  "longitude":77.636048,
+  "source":"Google Maps short-link supplied by user"
+}
+        </pre>
+      </details>
+    </div>
+
+    <div style="margin-top:12px">
+      <label>Globe texture:</label>
+      <select id="globeTexture">
+        <option value="day">High-res Day</option>
+        <option value="night">Night (city lights)</option>
+        <option value="low">Low-res (fallback)</option>
+      </select>
+      <button id="applyTexture" class="btn secondary">Apply</button>
+    </div>
+
+  </div>
+</div>
+
+<footer class="small">
+  This file loads third-party JS & tiles from public CDNs and public tile providers (OSM, Esri, OpenTopoMap). No API keys required. The parcel polygon is an approximate estimate generated around the anchor coordinate — you can edit its vertices with the "edit" control on the 2D map.
+</footer>
+
+<!-- Libraries (CDN) -->
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet-measure-path@2.0.2/leaflet-measure-path.umd.js"></script>
+<script src="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js"></script>
+<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+<script src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+
+<!-- three.js and three-globe -->
+<script src="https://unpkg.com/three@0.153.0/build/three.min.js"></script>
+<script src="https://unpkg.com/three-globe@2.26.5/dist/three-globe.min.js"></script>
+<script src="https://unpkg.com/@tweenjs/tween.js@18.6.4/dist/tween.umd.js"></script>
+
+<script>
+/* ===========================
+   CONFIG / Constants
+   =========================== */
+const LAT = 13.130552;
+const LON = 77.636048;
+const LABEL = "Marksman Resort / D-Cube Sports Club";
+
+/* Helper: Decimal -> DMS */
+function toDMS(lat, lon) {
+  function c(d,isLat){ const hemi = d>=0 ? (isLat?'N':'E'):(isLat?'S':'W'); d=Math.abs(d); const deg=Math.floor(d); const mfloat=(d-deg)*60; const min=Math.floor(mfloat); const sec=(mfloat-min)*60; return deg+"° "+min+"' "+sec.toFixed(2)+"\" "+hemi; }
+  return c(lat,true)+", "+c(lon,false);
+}
+document.getElementById('dmsDisplay').textContent = toDMS(LAT,LON);
+
+/* ===========================
+   2D Map (Leaflet) init
+   =========================== */
+let map2d, osmLayer, satLayer, topoLayer, marker2d, parcelLayer, drawControl, measureControl;
+let drawnItems;
+(function init2D(){
+  map2d = L.map('map2d', {zoomControl:true}).setView([LAT,LON], 16);
+  osmLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom:19, attribution:'&copy; OpenStreetMap contributors'}).addTo(map2d);
+  satLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {maxZoom:19, attribution:'Tiles &copy; Esri'}); // satellite
+  topoLayer = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {maxZoom:17, attribution:'&copy; OpenTopoMap contributors'}); // terrain
+
+  L.control.layers({"OpenStreetMap":osmLayer,"Satellite (Esri)":satLayer,"Terrain (OpenTopoMap)":topoLayer}).addTo(map2d);
+  L.control.scale({imperial:false}).addTo(map2d);
+
+  // marker cluster group (for potential multi markers)
+  const clusterGroup = L.markerClusterGroup();
+  map2d.addLayer(clusterGroup);
+
+  // main marker
+  marker2d = L.marker([LAT,LON]).bindPopup(`<strong>${LABEL}</strong><br/>${LAT.toFixed(6)}, ${LON.toFixed(6)}`).addTo(clusterGroup).openPopup();
+
+  // drawn items group + draw control (polygon editable)
+  drawnItems = new L.FeatureGroup().addTo(map2d);
+  parcelLayer = new L.FeatureGroup().addTo(map2d);
+
+  drawControl = new L.Control.Draw({
+    edit: { featureGroup: drawnItems, poly: { allowIntersection: false } },
+    draw: { polygon: true, polyline:false, rectangle:false, circle:false, marker:false, circlemarker:false }
+  });
+  map2d.addControl(drawControl);
+
+  map2d.on(L.Draw.Event.CREATED, function (event) {
+    const layer = event.layer;
+    drawnItems.clearLayers(); // keep only one user polygon
+    drawnItems.addLayer(layer);
+  });
+
+  // measure control (using leaflet-measure-path)
+  measureControl = new L.Control.MeasurePath({
+    showClearControl: true,
+    position: 'topright',
+    unit: 'metric',
+  });
+  measureControl.addTo(map2d);
+
+  // click to place temporary marker and copy coords
+  map2d.on('click', e => {
+    const {lat,lng} = e.latlng;
+    const tmp = L.marker([lat,lng]).addTo(map2d);
+    setTimeout(()=>map2d.removeLayer(tmp), 3000);
+  });
+
+  // init parcel polygon (approx estimate)
+  regenParcelPolygon(parseFloat(document.getElementById('parcelBuffer').value || 200));
+})();
+
+/* ===========================
+   Create approximate parcel polygon
+   (buffer in meters around center -> square approx)
+   =========================== */
+function metersToDegLat(m){ return m / 111320; } // approx
+function metersToDegLon(m, lat){ return m / (111320 * Math.cos(lat * Math.PI/180)); }
+
+function regenParcelPolygon(bufferMeters){
+  // approximate rectangular parcel centered at LAT/LON, with side length = 2*bufferMeters (square)
+  const dLat = metersToDegLat(bufferMeters);
+  const dLon = metersToDegLon(bufferMeters, LAT);
+  const coords = [
+    [LAT - dLat, LON - dLon],
+    [LAT - dLat, LON + dLon],
+    [LAT + dLat, LON + dLon],
+    [LAT + dLat, LON - dLon],
+    [LAT - dLat, LON - dLon]
+  ];
+  // clear previous
+  parcelLayer.clearLayers();
+  // draw polygon
+  const poly = L.polygon(coords, {color:'#ff3333', weight:2, fillOpacity:0.15}).addTo(parcelLayer);
+  // add to editable drawnItems as well so user can edit
+  drawnItems.clearLayers();
+  drawnItems.addLayer(poly);
+  // fit map if needed
+  // map2d.fitBounds(poly.getBounds(), {maxZoom:18, padding:[30,30]});
+}
+
+/* wire regen button */
+document.getElementById('regenParcel').addEventListener('click', ()=> {
+  const b = parseFloat(document.getElementById('parcelBuffer').value) || 200;
+  regenParcelPolygon(b);
+});
+
+/* Toggle parcel */
+let parcelVisible = true;
+document.getElementById('toggleParcel').addEventListener('click', ()=>{
+  parcelVisible = !parcelVisible;
+  if(parcelVisible) map2d.addLayer(parcelLayer);
+  else map2d.removeLayer(parcelLayer);
+});
+
+/* Download helpers for KML / GeoJSON */
+function makeKML(coordsArray){
+  // coordsArray is [ [lon,lat], ... ]
+  const coordsText = coordsArray.map(c => `${c[0]},${c[1]},0`).join(' ');
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document><name>Parcel - Marksman Resort</name>
+    <Placemark><name>Estimated Parcel</name><Polygon><outerBoundaryIs><LinearRing><coordinates>${coordsText}</coordinates></LinearRing></outerBoundaryIs></Polygon></Placemark>
+  </Document>
+</kml>`;
+}
+function makeGeoJSON(coordsArray){
+  return JSON.stringify({ type:"FeatureCollection", features:[{ type:"Feature", properties:{ name:"Estimated Parcel" }, geometry:{ type:"Polygon", coordinates:[coordsArray] } }] }, null, 2);
+}
+
+/* download buttons */
+document.getElementById('downloadKml').addEventListener('click', ()=>{
+  const poly = drawnItems.getLayers()[0];
+  if(!poly){ alert("No polygon available. (Generate parcel or draw one)"); return; }
+  const latlngs = poly.getLatLngs()[0];
+  const coords = latlngs.map(p => [p.lng, p.lat]);
+  const kml = makeKML(coords);
+  const blob = new Blob([kml], {type:'application/vnd.google-earth.kml+xml'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href=url; a.download='marksman-parcel.kml'; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+});
+document.getElementById('downloadGeoJSON').addEventListener('click', ()=>{
+  const poly = drawnItems.getLayers()[0];
+  if(!poly){ alert("No polygon available. (Generate parcel or draw one)"); return; }
+  const latlngs = poly.getLatLngs()[0];
+  const coords = latlngs.map(p => [p.lng, p.lat]);
+  const geo = makeGeoJSON(coords);
+  const blob = new Blob([geo], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href=url; a.download='marksman-parcel.geojson'; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+});
+
+/* ===========================
+   3D Globe (three-globe) init
+   =========================== */
+let scene, camera, renderer, globe, globeReady=false;
+(function init3D(){
+  const container = document.getElementById('globeViz');
+  const w = container.clientWidth || 800;
+  const h = container.clientHeight || 520;
+  renderer = new THREE.WebGLRenderer({ antialias:true, alpha:true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
+  renderer.setSize(w,h);
+  container.appendChild(renderer.domElement);
+
+  scene = new THREE.Scene();
+  camera = new THREE.PerspectiveCamera(35, w/h, 0.1, 1000);
+  camera.position.set(0,0,200);
+
+  scene.add(new THREE.AmbientLight(0xbbbbbb));
+  const dirLight = new THREE.DirectionalLight(0xffffff, 0.6);
+  dirLight.position.set(100,100,100);
+  scene.add(dirLight);
+
+  globe = new ThreeGlobe({ waitForGlobeReady: true })
+    .globeImageUrl('https://raw.githubusercontent.com/aaronice/earth-map/master/8192_4096_land_ocean_ice.jpg')
+    .bumpImageUrl('https://raw.githubusercontent.com/jeromeetienne/threex.planets/master/images/earth-topo-small.jpg')
+    .pointsData([{lat:LAT, lng:LON, size:1}])
+    .pointAltitude(0.01)
+    .pointColor(()=>'orange');
+
+  globe.rotateY(0.6);
+  scene.add(globe);
+
+  window.addEventListener('resize', ()=> {
+    const W = container.clientWidth, H = container.clientHeight;
+    renderer.setSize(W,H);
+    camera.aspect = W/H;
+    camera.updateProjectionMatrix();
+  });
+
+  (function animate(){
+    requestAnimationFrame(animate);
+    TWEEN.update();
+    globe.rotation.y += 0.0008;
+    renderer.render(scene,camera);
+  })();
+
+  globeReady = true;
+})();
+
+/* Globe texture swap */
+document.getElementById('applyTexture').addEventListener('click', ()=>{
+  const sel = document.getElementById('globeTexture').value;
+  if(!globe) return;
+  if(sel==='day'){
+    globe.globeImageUrl('https://raw.githubusercontent.com/aaronice/earth-map/master/8192_4096_land_ocean_ice.jpg');
+  } else if(sel==='night'){
+    globe.globeImageUrl('https://raw.githubusercontent.com/robbie-cooke/earth-night-view/master/earthlights_8192.png');
+  } else {
+    globe.globeImageUrl('https://raw.githubusercontent.com/jeromeetienne/threex.planets/master/images/earthmap1k.jpg');
+  }
+}
+
+/* ===========================
+   UI toggles & cinematic fly
+   =========================== */
+document.getElementById('show2d').addEventListener('click', ()=>{
+  document.getElementById('mapContainer2d').style.display='block';
+  document.getElementById('mapContainer3d').style.display='none';
+  setTimeout(()=>map2d.invalidateSize(),250);
+});
+document.getElementById('show3d').addEventListener('click', ()=>{
+  document.getElementById('mapContainer2d').style.display='none';
+  document.getElementById('mapContainer3d').style.display='block';
+});
+
+function flyTo2D(){ map2d.flyTo([LAT,LON], 18, {duration:2.2}); marker2d.openPopup(); }
+
+function flyTo3D(){
+  if(!globeReady) return;
+  const phi = (90 - LAT) * (Math.PI/180);
+  const theta = (LON + 180) * (Math.PI/180);
+  const targetRadius = 200;
+  const tx = targetRadius * Math.sin(phi) * Math.cos(theta);
+  const ty = targetRadius * Math.cos(phi);
+  const tz = targetRadius * Math.sin(phi) * Math.sin(theta);
+  const start = {x:camera.position.x, y:camera.position.y, z:camera.position.z};
+  const end = {x:tx, y:ty, z:tz};
+  new TWEEN.Tween(start).to(end, 2200).easing(TWEEN.Easing.Quadratic.InOut).onUpdate(function(){
+    camera.position.set(start.x,start.y,start.z); camera.lookAt(new THREE.Vector3(0,0,0));
+  }).start();
+}
+
+document.getElementById('flyTo').addEventListener('click', ()=>{
+  if(document.getElementById('mapContainer3d').style.display!=='none'){
+    flyTo3D();
+    setTimeout(()=>{ document.getElementById('mapContainer2d').style.display='block'; document.getElementById('mapContainer3d').style.display='none'; setTimeout(()=>flyTo2D(),600); }, 2400);
+  } else {
+    flyTo2D();
+    setTimeout(()=>{ document.getElementById('mapContainer2d').style.display='none'; document.getElementById('mapContainer3d').style.display='block'; setTimeout(()=>flyTo3D(),600); }, 2000);
+  }
+});
+
+/* ===========================
+   Copy / Open links, Export PNG
+   =========================== */
+document.getElementById('copyBtn').addEventListener('click', async ()=>{
+  const t = `${LAT.toFixed(6)}, ${LON.toFixed(6)}`;
+  try{ await navigator.clipboard.writeText(t); alert('Copied: '+t); } catch(e){ prompt('Coords (copy):', t); }
+});
+const gLink = "https://www.google.com/maps/search/?api=1&query="+encodeURIComponent(LAT+','+LON);
+document.getElementById('openGoogle').href = gLink;
+const osmLink = "https://www.openstreetmap.org/?mlat="+LAT+"&mlon="+LON+"#map=18/"+LAT+"/"+LON;
+document.getElementById('openOSM').href = osmLink;
+
+/* Export PNG (2D map capture or globe fallback) */
+document.getElementById('exportPNG').addEventListener('click', async ()=>{
+  // prefer 2D map container snapshot
+  const target = (document.getElementById('mapContainer2d').style.display!=='none') ? document.getElementById('map2d') : document.getElementById('globeViz');
+  html2canvas(target, {useCORS:true, logging:false, allowTaint:false}).then(canvas=>{
+    const url = canvas.toDataURL('image/png');
+    const a = document.createElement('a'); a.href = url; a.download = 'marksman_view.png'; document.body.appendChild(a); a.click(); a.remove();
+  }).catch(err => alert('Export failed: '+err.message));
+});
+
+/* ===========================
+   Measure toggle button (show/hide)
+   =========================== */
+let measureShown = true;
+document.getElementById('measureBtn').addEventListener('click', ()=>{
+  measureShown = !measureShown;
+  if(measureShown) measureControl.addTo(map2d);
+  else map2d.removeControl(measureControl);
+});
+
+/* ===========================
+   Parcel visibility on load
+   =========================== */
+map2d.whenReady(()=>{ if(!parcelVisible) map2d.removeLayer(parcelLayer) });
+
+/* ===========================
+   Simple example cluster markers (nearby POIs) — optional
+   =========================== */
+(function addSamplePOIs(){
+  // sample offsets (fake points around center)
+  const offsets = [[0.0010,0.0012],[-0.0009,-0.0013],[0.0015,-0.0008],[-0.0014,0.0009]];
+  const cluster = L.markerClusterGroup();
+  offsets.forEach((o,i)=>{
+    const m = L.marker([LAT + o[0], LON + o[1]]).bindPopup(`<strong>Sample POI ${i+1}</strong>`);
+    cluster.addLayer(m);
+  });
+  map2d.addLayer(cluster);
+})();
+
+/* ===========================
+   Initial UI states
+   =========================== */
+document.getElementById('mapContainer2d').style.display='block';
+document.getElementById('mapContainer3d').style.display='none';
+
+/* ===========================
+   Notes: Helpful console info
+   =========================== */
+console.log('All-in-one map loaded. Coordinates:', LAT, LON);
+</script>
+</body>
+</html>
